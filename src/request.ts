@@ -162,11 +162,17 @@ function retryAfter(headers: string, body: string): number | undefined {
 }
 
 /**
- * POST to /v1/systemone through curl. The bearer token is written to file
- * descriptor 3 and passed as `-H @/dev/fd/3`, so it never appears on argv,
- * in the child environment, in a temp file, or in any output. The request
- * body goes on stdin via `--data-binary @-`; response body and headers are
- * captured to files in a private temp dir.
+ * POST to /v1/systemone through curl. The bearer token reaches curl as a
+ * header read from file descriptor 3 (`-H @/dev/fd/3`), so it never appears
+ * on argv, in the child environment, in a temp file, or in any output.
+ *
+ * fd 3 must be a real anonymous pipe: Node stdio pipes are socketpairs, and
+ * on Linux a socket fd cannot be reopened through /dev/fd (open() fails with
+ * ENXIO) - the same reason bin/fm-dispatch-resolve.sh uses `3< <(printf ...)`.
+ * So curl is exec'd through bash, which builds fd 3 by process substitution;
+ * a `cat <&4` inside the substitution copies the header from our fd-4 pipe
+ * into it. The request body goes on stdin via `--data-binary @-`; response
+ * body and headers are captured to files in a private temp dir.
  */
 export async function postSystemOne(opts: {
   key: string;
@@ -245,8 +251,11 @@ function runCurl(
   return new Promise((resolve, reject) => {
     const started = Date.now();
     const child = spawn(
-      "curl",
+      "bash",
       [
+        "-c",
+        'exec curl "$@" 3< <(cat <&4) 4<&-',
+        "jev-axi",
         "-sS",
         "--max-time",
         String(opts.timeoutS),
@@ -267,18 +276,35 @@ function runCurl(
         "@-",
       ],
       {
-        stdio: ["pipe", "pipe", "pipe", "pipe"],
+        stdio: ["pipe", "pipe", "pipe", "ignore", "pipe"],
         env: childEnv,
       },
     );
     const stderrChunks: Buffer[] = [];
     const stdoutChunks: Buffer[] = [];
-    child.stderr.on("data", (c: Buffer) => stderrChunks.push(c));
-    child.stdout.on("data", (c: Buffer) => stdoutChunks.push(c));
+    // A child that exits before draining a pipe resets the parent's end; the
+    // close event reports the real outcome, so stream errors only annotate.
+    const streamErrs: string[] = [];
+    const absorb = (s: unknown, name: string) => {
+      if (s && typeof (s as NodeJS.EventEmitter).on === "function") {
+        (s as NodeJS.EventEmitter).on("error", (e: Error) =>
+          streamErrs.push(`${name}: ${e.message}`),
+        );
+      }
+    };
+    // stdio is all-pipe for 0-2 and 4, so these streams are always present.
+    const stdin = child.stdin!;
+    const stdout = child.stdout!;
+    const stderr = child.stderr!;
+    absorb(stdin, "stdin");
+    absorb(stdout, "stdout");
+    absorb(stderr, "stderr");
+    stderr.on("data", (c: Buffer) => stderrChunks.push(c));
+    stdout.on("data", (c: Buffer) => stdoutChunks.push(c));
     child.on("error", (err) => {
       reject(
         new AxiError(`could not run curl: ${err.message}`, "VALIDATION_ERROR", [
-          "curl must be on PATH",
+          "bash and curl must be on PATH",
         ]),
       );
     });
@@ -290,19 +316,22 @@ function runCurl(
         headers: existsSafe(headerPath),
         body: existsSafe(bodyPath),
         latencyMs: Date.now() - started,
-        stderr: Buffer.concat(stderrChunks).toString("utf-8"),
+        stderr:
+          Buffer.concat(stderrChunks).toString("utf-8") +
+          (streamErrs.length ? `\n${streamErrs.join("; ")}` : ""),
       });
     });
-    const fd3 = child.stdio[3] as Writable | null;
-    if (!fd3 || typeof fd3.write !== "function") {
+    const fd4 = child.stdio[4] as Writable | null;
+    if (!fd4 || typeof fd4.write !== "function") {
       child.kill();
-      reject(new AxiError("curl spawned without a writable fd 3", "BAD_RESPONSE"));
+      reject(new AxiError("curl spawned without a writable key pipe", "BAD_RESPONSE"));
       return;
     }
-    fd3.write(`Authorization: Bearer ${opts.key}`);
-    fd3.end();
-    child.stdin.write(reqBody);
-    child.stdin.end();
+    absorb(fd4, "fd4");
+    fd4.write(`Authorization: Bearer ${opts.key}`);
+    fd4.end();
+    stdin.write(reqBody);
+    stdin.end();
   });
 }
 

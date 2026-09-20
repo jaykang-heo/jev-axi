@@ -33,9 +33,11 @@ to npm (`"private": true` — do not add publish steps or `npm publish`).
 `src/key.ts` captures `TYPESAFE_API_KEY` into module state at `initialize` and
 deletes the env var, so spawned children never inherit it. Fallback:
 `~/.config/jev-axi/env`, mode `600` enforced. `src/request.ts` sends the key
-to curl as `-H @/dev/fd/3` written to the child's fd 3 — never argv, never a
-file, never output. `test/key-safety.test.ts` asserts all of this with a fake
-curl; it must stay green before any commit.
+to curl as `-H @/dev/fd/3`, where fd 3 is a real pipe built by bash process
+substitution and fed by `cat` from our fd-4 pipe — never argv, never a
+file, never output (a Node stdio pipe is a socketpair, which Linux cannot
+reopen via /dev/fd). `test/key-safety.test.ts` asserts all of this with a
+fake curl; it must stay green before any commit.
 
 ## Release
 
