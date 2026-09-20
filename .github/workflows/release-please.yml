@@ -1,0 +1,42 @@
+name: release-please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # jev-axi is private and installs from GitHub tags - nothing is ever
+      # published to npm. On release, verify the tagged tree still builds and
+      # tests green; the tag itself is the distribution artifact.
+      - uses: actions/checkout@v4
+        if: ${{ steps.release.outputs.release_created }}
+
+      - uses: pnpm/action-setup@v4
+        if: ${{ steps.release.outputs.release_created }}
+
+      - uses: actions/setup-node@v6
+        if: ${{ steps.release.outputs.release_created }}
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+        if: ${{ steps.release.outputs.release_created }}
+
+      - run: pnpm run build
+        if: ${{ steps.release.outputs.release_created }}
+
+      - run: pnpm test
+        if: ${{ steps.release.outputs.release_created }}

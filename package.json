@@ -1,0 +1,52 @@
+{
+  "name": "jev-axi",
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.1.1",
+  "description": "Agent-ergonomic CLI for TypeSafe Jev: typed judgments (choice, noul, score) for agents",
+  "type": "module",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jaykang-heo/jev-axi.git"
+  },
+  "keywords": [
+    "jev",
+    "typesafe",
+    "cli",
+    "agent",
+    "axi",
+    "toon"
+  ],
+  "bin": {
+    "jev-axi": "./dist/bin/jev-axi.js"
+  },
+  "files": [
+    "dist",
+    "skills/jev-axi",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "build:skill": "tsx scripts/build-skill.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "tsx bin/jev-axi.ts",
+    "prepare": "npm run build"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@toon-format/toon": "^2.1.0",
+    "axi-sdk-js": "^0.1.12"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "prettier": "^3.8.1",
+    "tsx": "^4.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
